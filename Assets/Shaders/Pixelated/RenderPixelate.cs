@@ -1,56 +1,52 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.HighDefinition;
 
-public class RenderPixelate : MonoBehaviour
-{
-    public ComputeShader PixelateComputeShader;
-    [Range(2, 40)] public int BlockSize = 3;
+public class RenderPixelate : CustomPassVolume {
+	public ComputeShader PixelateComputeShader;
+	[Range(2, 40)] public int BlockSize = 3;
 
-    int _screenWidth;
-    int _screenHeight;
-    RenderTexture _renderTexture;
+	int _screenWidth;
+	int _screenHeight;
+	RTHandle _renderTexture;
+	Material _pixelateMaterial;
 
-    void Start()
-    {
-        CreateRenderTexture();
-    }
+	protected override void Setup(ScriptableRenderContext renderContext, CommandBuffer cmd) {
+		CreateRenderTexture();
+		_pixelateMaterial = new Material(Shader.Find("RenderPixelate")); // Replace with your pixelate shader
 
-    void CreateRenderTexture()
-    {
-        _screenWidth = Screen.width;
-        _screenHeight = Screen.height;
-        
-        _renderTexture = new RenderTexture(_screenWidth, _screenHeight, 24);
-        _renderTexture.filterMode = FilterMode.Point;
-        _renderTexture.enableRandomWrite = true;
-        _renderTexture.Create();
-    }
+		// Add any setup code for your custom pass here.
+	}
 
-    void Update()
-    {
-        if (Screen.width != _screenWidth || Screen.height != _screenHeight)
-            CreateRenderTexture();
-    }
+	void CreateRenderTexture() {
+		_screenWidth = Screen.width;
+		_screenHeight = Screen.height;
 
-    public override void Render(CommandBuffer cmd, HDCamera camera, RTHandle source, RTHandle destination)
+		_renderTexture = RTHandles.Alloc(_screenWidth, _screenHeight, colorFormat: GraphicsFormat.R8G8B8A8_SRGB, filterMode: FilterMode.Point, enableRandomWrite: true);
 
+		// Set up the render texture parameters as needed.
+	}
 
-    void OnRenderImage(RenderTexture src, RenderTexture dest)
-    {
-        Graphics.Blit(src, _renderTexture);
+	protected override void Execute(ScriptableRenderContext renderContext, CommandBuffer cmd, HDCamera camera, CullingResults cullingResult) {
+		// Dispatch your compute shader here.
+		var mainKernel = PixelateComputeShader.FindKernel("Pixelate");
+		cmd.SetComputeIntParam(PixelateComputeShader, "_BlockSize", BlockSize);
+		cmd.SetComputeIntParam(PixelateComputeShader, "_ResultWidth", _renderTexture.rt.width);
+		cmd.SetComputeIntParam(PixelateComputeShader, "_ResultHeight", _renderTexture.rt.height);
+		cmd.SetComputeTextureParam(PixelateComputeShader, mainKernel, "_Result", _renderTexture);
 
-        var mainKernel = PixelateComputeShader.FindKernel("Pixelate");
-        PixelateComputeShader.SetInt("_BlockSize", BlockSize);
-        PixelateComputeShader.SetInt("_ResultWidth", _renderTexture.width);
-        PixelateComputeShader.SetInt("_ResultHeight", _renderTexture.height);
-        PixelateComputeShader.SetTexture(mainKernel, "_Result", _renderTexture);
-        PixelateComputeShader.GetKernelThreadGroupSizes(mainKernel, out uint xGroupSize, out uint yGroupSize, out _);
-        PixelateComputeShader.Dispatch(mainKernel,
-            Mathf.CeilToInt(_renderTexture.width / (float)BlockSize / xGroupSize),
-            Mathf.CeilToInt(_renderTexture.height / (float)BlockSize / yGroupSize),
-            1);
+		uint threadGroupsX, threadGroupsY, threadGroupsZ;
+		PixelateComputeShader.GetKernelThreadGroupSizes(mainKernel, out threadGroupsX, out threadGroupsY, out threadGroupsZ);
 
-        Graphics.Blit(_renderTexture, dest);
-    }
+		cmd.DispatchCompute(PixelateComputeShader, mainKernel,
+				Mathf.CeilToInt(_renderTexture.rt.width / (float)BlockSize / threadGroupsX),
+				Mathf.CeilToInt(_renderTexture.rt.height / (float)BlockSize / threadGroupsY),
+				1);
+
+		// Blit the result to the destination.
+		HDUtils.DrawFullScreen(cmd, _renderTexture, destination: camera.colorBuffer, material: _pixelateMaterial);
+
+		// If you want to apply additional post-processing, you can do so here.
+	}
 }
