@@ -1,6 +1,6 @@
 #pragma kernel Main
 
-#include "Assets/Shaders/NMGGrassBladeComputeHelpers.hlsl"
+#include "Assets/Shaders/Grass/NMGGrassBladeComputeHelpers.hlsl"
 
 struct SourceVertex {
   float3 positionOS;
